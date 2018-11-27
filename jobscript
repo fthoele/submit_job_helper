@@ -1,0 +1,17 @@
+#!/bin/bash
+
+source /cluster/project/spaldin/use_repository.sh
+
+#BSUB -n 72
+#BSUB -R "rusage[mem=2048]"
+#BSUB -W 48:00
+#BSUB -o job.o%J
+#BSUB -e job.e%J
+#BSUB -J jobname
+#BSUB -R "fullnode"
+
+module purge
+module load vasp/5.4.1
+exe=vasp
+
+mpirun -np 72 $exe

@@ -1,0 +1,20 @@
+#!/bin/bash
+
+#SBATCH --job-name=jobname
+#SBATCH --partition=normal
+#SBATCH --constraint=mc
+#SBATCH --account=eth3
+#SBATCH --time=24:00:00
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=36
+#SBATCH --cpus-per-task=1
+#SBATCH --output=out.%j
+#SBATCH --error=err.%j
+#======START=====
+
+export OMP_NUM_THREADS=1
+ulimit -s unlimited
+source /apps/ethz/eth3/daint/use_modules.sh
+module load mc/vasp/5.4.4
+
+srun -n $SLURM_NTASKS --ntasks-per-node=$SLURM_NTASKS_PER_NODE -c $SLURM_CPUS_PER_TASK  vasp_std
