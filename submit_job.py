@@ -7,17 +7,82 @@ import subprocess
 import sys
 from time import localtime, strftime
 
+class Logger:
+    def write(self, jobinfo):
+        raise NotImplementedError()
+
+
+class TextLogger(Logger):
+    def __init__(self, fp):
+        self.fp = fp
+
+    def write(self, jobinfo):
+        tstr = strftime("%Y-%m-%d %H:%M:%S", localtime())
+        #with open(self.filename, "a", encoding="utf-8") as logfile:
+        self.fp.write(u"{0}\t{1}\t{2}\t{3}\t{4}\n".format(
+            tstr, 
+            jobinfo.get('jobid', 0), 
+            jobinfo.get('cwd', "NONE"),
+            jobinfo['filename'],
+            jobinfo.get('jobname', jobinfo['filename'])
+        ))
+
+
+class SQLiteLogger(Logger):
+    def __init__(self, connection, table_name="jobs", create_always=False):
+        self.conn = connection
+        self.table_name = table_name
+        self.ensure_table_exists(create_always=create_always)
+
+    def ensure_table_exists(self, create_always=False):
+        r = self.conn.execute(
+            f"SELECT name FROM sqlite_master WHERE type='table' AND name=?;", 
+            (self.table_name, )
+            )
+        if not len(r.fetchall()):      
+            self.create_table()        
+        elif create_always:
+            self.delete_table()
+            self.create_table()
+        
+
+    def delete_table(self):        
+        self.conn.execute("""DROP TABLE {}""".format(self.table_name))
+        self.conn.commit()
+
+
+    def create_table(self):        
+        self.conn.execute("""CREATE TABLE {}
+            (id INTEGER primary key,
+            jobid INT, 
+            datetime DATETIME,
+            directory TEXT,
+            jobscript TEXT,
+            jobname TEXT
+            )""".format(self.table_name))
+        self.conn.commit()
+
+    def write(self, jobinfo):
+        tstr = strftime("%Y-%m-%d %H:%M:%S", localtime())
+
+        self.conn.execute("""INSERT INTO {}(jobid, datetime, directory, jobscript, jobname)
+          VALUES (?, ?, ?, ?, ?)""".format(self.table_name),
+          (jobinfo['jobid'], tstr, jobinfo['cwd'], jobinfo['filename'], jobinfo['jobname'])
+          )
+        self.conn.commit()
+
 class JobRunner:
-    def __init__(self, filename, logfile):
+    def __init__(self, filename, logger):
         self.filename = filename
-        self.logfile = logfile
+        self.logger = logger
 
     
     def run(self):
         try:
             output = self.submit()
             jobinfo = self.get_jobinfo(output)
-            self.write_to_log(jobinfo)
+            jobinfo['filename'] = self.filename            
+            self.logger.write(jobinfo)
         except IOError as e:            
             print(e)
             
@@ -28,18 +93,6 @@ class JobRunner:
 
     def get_jobinfo(self, output):
         raise NotImplementedError()
-
-    
-    def write_to_log(self, jobinfo):
-        tstr = strftime("%Y-%m-%d %H:%M:%S", localtime())
-            
-        self.logfile.write(u"{0}\t{1}\t{2}\t{3}\t{4}\n".format(
-            tstr, 
-            jobinfo.get('jobid', 0), 
-            jobinfo.get('cwd', "NONE"),
-            self.filename, 
-            jobinfo.get('jobname', self.filename)
-        ))
 
 
 class EulerJobRunner(JobRunner):
@@ -130,10 +183,10 @@ def get_cluster(hostname=None):
         raise NotImplementedError("Unknown cluster: {}".format(hostname))
 
 
-def run(runner_class, logfile):
+def run(runner_class, logger):
     filenames = sys.argv[1:]
     for fn in filenames:
-        runner = runner_class(fn, logfile)
+        runner = runner_class(fn, logger)
         runner.run()
 
 
@@ -141,5 +194,7 @@ if __name__ == "__main__":
     cluster = get_cluster()
     
     from io import open
+    
     with open(cluster['logfile'], "a", encoding="utf-8") as logfile:
-        run(cluster['runner'], logfile)
+        logger = TextLogger(logfile)
+        run(cluster['runner'], logger)
